@@ -1,0 +1,28 @@
+# --- Python 基础忽略 ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# --- VS Code 配置 ---
+.vscode/
+
+# --- 项目特定忽略 (根据你的截图) ---
+
+# 忽略训练过程中的日志和模型保存路径 (通常这些文件很大且频繁变动)
+train_experiments/
+
+# 忽略大数据集文件 (.pkl 看在这个目录下)
+# 如果 build_dataset.py 是用来生成数据的，那么生成后的 pkl 文件通常不需要上传
+data/*.pkl
+*.pkl
+
+# 忽略 macOS 系统文件 (防止团队协作时的垃圾文件)
+.DS_Store
+
+# 忽略 SSH 或 IDE 的临时文件
+*.log

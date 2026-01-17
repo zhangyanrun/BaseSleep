@@ -1,0 +1,65 @@
+{
+    "TRAIN_PARAMS": {
+        "num_epochs": 200,
+        "log_interval": 20,
+        "target_update": 10,
+        "device": "cuda",
+        "train_data_path": "data/train_dataset.pkl",
+        "test_data_path": "data/test_dataset.pkl",
+        "save_path": "train_experiments"
+    },
+    "RL_PARAMS": {
+        "input_dim": 5,
+        "hidden_dim1": 64,
+        "hidden_dim2": 256,
+        "gcn_output_dim": 16,
+        "lr": 5e-05,
+        "gamma": 0.95,
+        "epsilon_start": 1.0,
+        "epsilon_min": 0.05,
+        "epsilon_decay": 0.9998,
+        "memory_size": 10000,
+        "batch_size": 1
+    },
+    "REWARD_PARAMS": {
+        "w_energy_saving": 20.0,
+        "qos_alpha": 0.1,
+        "qos_beta": 4.0,
+        "w_drop": 1.0,
+        "global_scale": 0.0001
+    },
+    "BS_CONFIG": {
+        "4G_macro": {
+            "capacity": 300.0,
+            "radius_eff": 500.0,
+            "radius_max": 1500.0,
+            "p_zero": 400.0,
+            "slope": 200.0,
+            "p_sleep": 80.0
+        },
+        "4G_micro": {
+            "capacity": 100.0,
+            "radius_eff": 200.0,
+            "radius_max": 300.0,
+            "p_zero": 100.0,
+            "slope": 60.0,
+            "p_sleep": 20.0
+        },
+        "5G_macro": {
+            "capacity": 2000.0,
+            "radius_eff": 300.0,
+            "radius_max": 1000.0,
+            "p_zero": 1000.0,
+            "slope": 500.0,
+            "p_sleep": 150.0
+        },
+        "5G_micro": {
+            "capacity": 800.0,
+            "radius_eff": 100.0,
+            "radius_max": 300.0,
+            "p_zero": 180.0,
+            "slope": 120.0,
+            "p_sleep": 40.0
+        }
+    }
+}

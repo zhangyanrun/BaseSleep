@@ -238,7 +238,8 @@ class NetworkEnv:
         saved_power_w = baseline_total_w - actual_total_w
         saved_power_kw = saved_power_w / 1000
         
-        r_saving = saved_power_kw * self.w_energy_saving
+        # r_saving = saved_power_kw * self.w_energy_saving
+        r_saving = saved_power_w * self.w_energy_saving
         
         # --- D. QoS 非线性惩罚 (保持之前的建议) ---        
         # 使用实际负载计算风险

@@ -67,7 +67,7 @@ RL_PARAMS = {
     'gcn_output_dim': 16,
     
     # 学习率 (Learning Rate)
-    'lr': 5e-5,
+    'lr': 1e-1,
     
     # 折扣因子 (Discount Factor)
     'gamma': 0.95,
@@ -90,17 +90,17 @@ RL_PARAMS = {
 # ==========================================
 REWARD_PARAMS = {
     # 【修改】不再直接用能耗系数，而是用“节省能耗”的缩放系数
-    'w_energy_saving': 10.0, 
+    'w_energy_saving': 1, 
     
     # 【新增】非线性 QoS 惩罚参数
     # 公式: alpha * (exp(beta * load) - 1)
-    'qos_alpha': 0,   # 基础系数，控制整体惩罚幅度
-    'qos_beta': 4.0,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
+    'qos_alpha': 0.3,   # 基础系数，控制整体惩罚幅度
+    'qos_beta': 2,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
     
     # 掉线依然是不可接受的，保留最严厉的线性惩罚
-    'w_drop': 20,
+    'w_drop': 2.5,
 
-    'global_scale': 0.0001
+    'global_scale': 0.00001
 }
 
 # ==========================================
@@ -111,7 +111,7 @@ TRAIN_PARAMS = {
     'log_interval': 20,    # 每训练多少个 Mesh 打印一次日志
     'target_update': 10,   # 每多少个 Mesh 更新一次目标网络
     # 'device': "cuda" if torch.cuda.is_available() else "cpu",
-    'device' : 'cuda:0',
+    'device' : 'cuda:1',
     'train_data_path' : "data/train_dataset.pkl",
     'test_data_path' : "data/test_dataset.pkl",
     'save_path' : "train_experiments"

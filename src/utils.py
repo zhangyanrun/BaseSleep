@@ -172,7 +172,7 @@ def plot_learning_curve(history, save_dir):
     # --- 图 3: Power ---
     plt.figure(figsize=(10, 6))
     plt.plot(epochs, history['power_kw'], color='green', alpha=0.8)
-    plt.title('Average Power Consumption')
+    plt.title('Average Saved Power Consumption')
     plt.xlabel('Epoch')
     plt.ylabel('kW')
     plt.grid(True, alpha=0.3)

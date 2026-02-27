@@ -3,18 +3,23 @@ from src.config import PRIORITY_MAP, TYPE_TO_INDEX
 
 
 class NetworkEnv:
-    def __init__(self, processed_data, bs_config, w_energy_saving, qos_alpha, qos_beta, w_drop, global_scale):
+    def __init__(self, processed_data, bs_config, w_energy_saving, qos_alpha, qos_beta, w_drop, global_scale, is_training=True):
         """
         processed_data: build_dataset 生成的数据字典
         bs_config: 物理参数配置字典
         """
         self.data = processed_data
+        # self.traffic_data = processed_data['traffic_tensor']
+
         self.bs_config = bs_config
         self.w_energy_saving = w_energy_saving
         self.qos_alpha = qos_alpha
         self.qos_beta = qos_beta
         self.w_drop = w_drop
         self.global_scale = global_scale
+
+        # 【新增】保存训练/测试模式标志位
+        self.is_training = is_training
         
         # 缓存当前环境状态
         self.current_mesh_id = None
@@ -34,15 +39,16 @@ class NetworkEnv:
 
     def reset(self, mesh_id):
         """
-        重置环境到指定 Mesh 的第 0 个时间步。
+        重置该mesh的环境特征
         """
+        # 重置环境到指定 Mesh 的第 0 个时间步。
+        self.current_step = 0
+
         self.current_mesh_id = mesh_id
         self.mesh_data = self.data[mesh_id]
-        self.current_step = 0
+        self.traffic_data = self.mesh_data['traffic_tensor']
         
-        # ====================================================
-        # 动态计算 real_n，不再依赖字典 Key
-        # ====================================================
+        # 动态计算节点数量 real_n，不再依赖字典 Key
         if 'bs_ids' in self.mesh_data:
             self.real_n = len(self.mesh_data['bs_ids'])
         elif 'static_info' in self.mesh_data:
@@ -52,8 +58,7 @@ class NetworkEnv:
             
         self.max_steps = self.mesh_data['traffic_tensor'].shape[0] - 1
         
-        # 2. 预加载物理参数 (只加载真实基站部分)
-        # static_info 是 DataFrame
+        # 把基站类型转为物理参数
         types_series = self.mesh_data['static_info']['Type'].iloc[:self.real_n]
         self.current_types = types_series.values
         
@@ -84,6 +89,14 @@ class NetworkEnv:
             self.type_onehot[i, type_idx] = 1.0
 
         self.current_adj = self._calculate_directed_geo_adj(self.mesh_data['static_info'])
+
+        # === 新增：用于记录指标的初始化 ===
+        # 假设所有基站初始状态都是开启 (1)
+        self.prev_actions = np.ones(self.real_n) 
+    
+        # 初始化当前回合的累计统计变量
+        self.mesh_total_traffic = 0.0  # 总承载流量 (用于算EE)  
+        self.mesh_sleep_steps = 0.0    # 累计休眠基站比例
 
         # 返回初始状态
         return self._get_state()
@@ -133,20 +146,59 @@ class NetworkEnv:
         
         return adj
 
+    # def _get_state(self):
+    #     """
+    #     构建图数据状态。
+    #     返回: node_features, adj_matrix
+    #     """
+    #     # 1. 节点特征 [Real
+    #     # _N, 5] (Load + 4_OneHot)
+    #     current_traffic = self.mesh_data['traffic_tensor'][self.current_step][:self.real_n]
+    #     node_features = np.concatenate([current_traffic, self.type_onehot], axis=1)
+        
+    #     # 2. 邻接矩阵 [Real_N, Real_N]
+    #     # adj = self._calculate_directed_geo_adj(self.mesh_data['static_info'])
+        
+    #     return node_features, self.current_adj
+    
     def _get_state(self):
         """
-        构建图数据状态。
-        返回: node_features, adj_matrix
+        【核心修改】根据 is_training 决定 D_{t+1} 的来源
         """
-        # 1. 节点特征 [Real
-        # _N, 5] (Load + 4_OneHot)
-        current_traffic = self.mesh_data['traffic_tensor'][self.current_step][:self.real_n]
-        node_features = np.concatenate([current_traffic, self.type_onehot], axis=1)
+        t = self.current_step
+        next_t = min(t + 1, self.max_steps - 1)
         
-        # 2. 邻接矩阵 [Real_N, Real_N]
-        # adj = self._calculate_directed_geo_adj(self.mesh_data['static_info'])
+        # 1. 获取当前真实负载 D_t (始终取 Channel 0: Real)
+        # 假设 traffic_data 维度为 [Time, N, 2]
+        current_real = self.traffic_data[t, :, 0].reshape(-1, 1)
         
-        return node_features, self.current_adj
+        # 2. 获取/构造 未来负载 D_{t+1}
+        if self.is_training:
+            # === 训练模式：真实值 + 噪声 ===
+            # 取出真实未来值
+            real_next = self.traffic_data[next_t, :, 0].reshape(-1, 1)
+            
+            # 生成噪声 (例如 10% 的随机波动)
+            # scale=0.1 表示标准差为 0.1，你可以根据需要调整
+            noise = np.random.normal(loc=1.0, scale=0.1, size=real_next.shape)
+            
+            # 加上噪声 (乘性噪声比较适合流量数据，防止出现负数)
+            input_next = real_next * noise
+            
+            # 安全截断，防止负数
+            input_next = np.maximum(input_next, 0.0)
+            
+        else:
+            # === 测试模式：预测值 ===
+            # 直接取 Channel 1: Pred
+            pred_next = self.traffic_data[next_t, :, 1].reshape(-1, 1)
+            input_next = pred_next
+
+        # 3. 拼接状态
+        # 结果: [Load_t(1), Load_t+1(1), Type(4)] -> 维度 6
+        features = np.concatenate([current_real, input_next, self.type_onehot], axis=1)
+        
+        return features, self.current_adj
 
 
     def step(self, actions):
@@ -218,9 +270,10 @@ class NetworkEnv:
         # --- A. 计算 Baseline (默认全开机模式下的能耗) ---
         # 假设所有基站 action=1，负载就是原始输入的 norm_load
         # 注意 clip 防止原始数据里的异常值超过 1.0
-        baseline_load_ratios = np.clip(norm_load, 0, 1.0)
+        # baseline_load_ratios = np.clip(norm_load, 0, 1.0)
+        baseline_load_ratios = norm_load
         
-        # 计算每个基站的基准功耗 (P_zero + Slope * Load)
+        # 计算每个基站的基准功耗 (P_zero + Slope * Load)，原本状态的总功耗
         baseline_power_each = self.p_zero_arr + self.slope_arr * baseline_load_ratios
         baseline_total_w = np.sum(baseline_power_each)
         
@@ -253,6 +306,19 @@ class NetworkEnv:
         # --- Total Reward ---
         reward = r_saving - p_congestion - p_drop
         reward = reward * self.global_scale
+
+        # === 新增：计算三大指标 ===
+        # 1. 累计本步流量 (用于事后算 EE)
+        self.mesh_total_traffic += np.sum(actual_load_mbps)
+    
+        # # 3. 计算并累计休眠比例 (动作中 0 的比例)
+        # # np.mean(action == 0) 会算出一个 0~1 的小数，比如 0.3 表示 30% 基站休眠
+        # sleep_ratio = np.mean(action == 0)
+        # self.mesh_sleep_steps += sleep_ratio
+    
+        # # 更新 prev_actions，留给下一个时间步用
+        # self.prev_actions = np.copy(action)
+        # ==========================
         
         # ==========================================
         # 4. 状态更新
@@ -266,7 +332,7 @@ class NetworkEnv:
         else:
             # 如果结束了，必须返回与 GCN 形状匹配的全 0 数据
             # Feature Dim = 5 (Load + 4_Type)
-            next_features = np.zeros((self.real_n, 5)) 
+            next_features = np.zeros((self.real_n, 6)) 
             # Adj Dim = (N, N)
             next_adj = np.zeros((self.real_n, self.real_n))
             

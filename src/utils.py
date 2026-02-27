@@ -112,13 +112,12 @@ class MetricTracker:
             "Total Dropped (Mb)": self.total_dropped_mbps
         }
 
-def save_config_to_json(save_dir, config_dict):
-    """
-    将配置字典保存为 JSON 文件
-    """
+
+
+def save_config_to_json(save_dir, config_dict):# 将配置字典保存为 JSON 文件
+
     json_path = os.path.join(save_dir, 'hyperparameters.json')
     
-    # 将几个配置字典合并，或者嵌套保存
     try:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(config_dict, f, indent=4, ensure_ascii=False)

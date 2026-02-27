@@ -10,13 +10,15 @@ from tqdm import tqdm
 
 from src.agent import PS_DQNAgent
 from src.env import NetworkEnv
+from src.baselines import AllOnAgent, RandomAgent
 # 【修改】引入新的 MetricTracker
 from src import utils
+from src.config import BS_CONFIG
 
 # 注意：plot_sample_mesh 需要你自己保留在 test.py 或者也移到 utils.py
 # 这里假设你把 plot_sample_mesh 留在了 test.py 或者 utils.py 中
 
-def evaluate(run_dir):
+def evaluate(run_dir, mode='drl'):
     # 1. 加载配置 (保持不变)
     json_path = os.path.join(run_dir, 'hyperparameters.json')
     if not os.path.exists(json_path):
@@ -27,11 +29,11 @@ def evaluate(run_dir):
         all_configs = json.load(f)
     
     RL_PARAMS = all_configs['RL_PARAMS']
-    BS_CONFIG = all_configs['BS_CONFIG']
+    # BS_CONFIG = all_configs['BS_CONFIG']
     REWARD_PARAMS = all_configs['REWARD_PARAMS']
     TRAIN_PARAMS = all_configs['TRAIN_PARAMS']
     
-    test_data_path = "data/test_dataset.pkl" 
+    test_data_path = "data/dataset_3d.pkl" 
     
     print(f"正在加载测试数据集: {test_data_path} ...")
     with open(test_data_path, 'rb') as f:
@@ -44,10 +46,16 @@ def evaluate(run_dir):
                      qos_alpha=REWARD_PARAMS['qos_alpha'],
                      qos_beta=REWARD_PARAMS['qos_beta'],
                      w_drop=REWARD_PARAMS['w_drop'],
-                     global_scale=REWARD_PARAMS['global_scale']
+                     global_scale=REWARD_PARAMS['global_scale'],
+                     is_training=False
                      )
 
-    agent = PS_DQNAgent(
+    agent = None
+    
+    if mode == 'drl':
+        print(f"正在加载 DRL 模型进行测试...")
+        # 初始化 DRL Agent
+        agent = PS_DQNAgent(
         input_dim=RL_PARAMS['input_dim'],
         hidden_dim1=RL_PARAMS['hidden_dim1'],
         hidden_dim2=RL_PARAMS['hidden_dim2'],
@@ -60,14 +68,31 @@ def evaluate(run_dir):
         memory_size=RL_PARAMS['memory_size'],
         batch_size=RL_PARAMS['batch_size'],
         device=TRAIN_PARAMS['device']
-    )
+        )
+        # 加载权重
+        model_path = os.path.join(run_dir, 'best_model_epoch_137_rw_102.36.pth') # 需要修改
+        if not os.path.exists(model_path):
+            print(f"警告：找不到指定的模型文件 {model_path}，尝试加载 final_model.pth ...")
+            model_path = os.path.join(run_dir, 'final_model.pth')
+        
+        agent.policy_net.load_state_dict(torch.load(model_path, map_location=agent.device))
+        agent.policy_net.eval()
+        
+    elif mode == 'all_on':
+        print(f"正在运行 All-On (全开) 基准策略...")
+        agent = AllOnAgent()
+        
+    elif mode == 'random':
+        print(f"正在运行 Random (随机) 基准策略...")
+        agent = RandomAgent(seed=42) # 固定种子保证可复现
+        
+    else:
+        raise ValueError(f"未知的模式: {mode}")
     
     model_path = os.path.join(run_dir, 'best_model.pth')
     if not os.path.exists(model_path):
         model_path = os.path.join(run_dir, 'final_model.pth')
     
-    agent.policy_net.load_state_dict(torch.load(model_path, map_location=agent.device))
-    agent.policy_net.eval()
     
     # ==========================================
     # 3. 测试循环
@@ -169,6 +194,7 @@ def evaluate(run_dir):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_dir', type=str, required=True)
+    parser.add_argument('--mode', type=str, default='drl', choices=['drl', 'all_on', 'random'], help="选择测试模式: drl, all_on, random")
     args = parser.parse_args()
 
     log_path = os.path.join(args.run_dir, 'test.log')
@@ -177,4 +203,4 @@ if __name__ == "__main__":
     print(f"日志系统已启动，记录文件: {log_path}")
     print("-" * 50)
 
-    evaluate(args.run_dir)
+    evaluate(args.run_dir, args.mode)

@@ -56,8 +56,8 @@ TYPE_TO_INDEX = {
 # 2. 强化学习超参数 (RL Hyperparameters)
 # ==========================================
 RL_PARAMS = {
-    # 状态维度: 1(Load) + 4(OneHot Type) = 5
-    'input_dim': 5,
+    # 状态维度: [Load_t(1), Load_t+1(1), OneHot_Type(4)]
+    'input_dim': 6,
     
     # 隐藏层维度: 128 (GCN 和 MLP 共享)
     'hidden_dim1': 64,
@@ -67,7 +67,7 @@ RL_PARAMS = {
     'gcn_output_dim': 16,
     
     # 学习率 (Learning Rate)
-    'lr': 1e-1,
+    'lr': 1e-3,
     
     # 折扣因子 (Discount Factor)
     'gamma': 0.95,
@@ -82,23 +82,23 @@ RL_PARAMS = {
     
     # 训练批次大小 (Batch Size)
     # 注意: PS-IDQN 每次训练一个 Mesh，这里指从 Buffer 中采样的 Mesh 数量
-    'batch_size': 1 
-}
+    'batch_size': 64
+    }
 
 # ==========================================
 # 3. 奖励与惩罚系数 (Reward Coefficients)
 # ==========================================
 REWARD_PARAMS = {
     # 【修改】不再直接用能耗系数，而是用“节省能耗”的缩放系数
-    'w_energy_saving': 1, 
+    'w_energy_saving': 5, 
     
     # 【新增】非线性 QoS 惩罚参数
     # 公式: alpha * (exp(beta * load) - 1)
-    'qos_alpha': 0.3,   # 基础系数，控制整体惩罚幅度
-    'qos_beta': 2,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
+    'qos_alpha': 5,   # 基础系数，控制整体惩罚幅度
+    'qos_beta': 3.5,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
     
     # 掉线依然是不可接受的，保留最严厉的线性惩罚
-    'w_drop': 2.5,
+    'w_drop': 5,
 
     'global_scale': 0.00001
 }
@@ -107,13 +107,13 @@ REWARD_PARAMS = {
 # 4. 训练流程参数 (Training Flow)
 # ==========================================
 TRAIN_PARAMS = {
-    'num_epochs': 200,      # 总共把所有 Mesh 轮询多少遍
+    'num_epochs': 150,      # 总共把所有 Mesh 轮询多少遍
     'log_interval': 20,    # 每训练多少个 Mesh 打印一次日志
     'target_update': 10,   # 每多少个 Mesh 更新一次目标网络
     # 'device': "cuda" if torch.cuda.is_available() else "cpu",
-    'device' : 'cuda:1',
-    'train_data_path' : "data/train_dataset.pkl",
-    'test_data_path' : "data/test_dataset.pkl",
+    'device' : 'cuda:0',
+    'train_data_path': 'data/dataset_3d.pkl', 
+    'test_data_path': 'data/dataset_3d.pkl',
     'save_path' : "train_experiments"
 
 }

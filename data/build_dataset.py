@@ -127,3 +127,12 @@ def build_dataset_core(topo_path, traffic_csv_path):
         
     print(f"数据集构建完成！包含 {len(Dataset)} 个 Mesh。")
     return Dataset
+
+def process_csvs_to_tensor(real_csv_path, pred_csv_path):
+    # ... 读取并对齐 ...
+    real_val = df_real.values # (N, T)
+    pred_val = df_pred.values # (N, T)
+    
+    # 堆叠: Channel 0 = Real, Channel 1 = Pred
+    traffic_tensor = np.stack([real_val, pred_val], axis=2) 
+    return traffic_tensor, bs_ids

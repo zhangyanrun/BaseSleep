@@ -1,5 +1,4 @@
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import pickle
 import sys
 import time
@@ -41,11 +40,16 @@ def main(run_dir):
     print(f"开始训练... 共 {len(mesh_ids)} 个 Mesh, 训练 {TRAIN_PARAMS['num_epochs']} 轮 (Epochs)")
     
     # 3. 初始化记录容器
-    total_step = 0 
+    # total_step = 0 
     history = {
         'rewards': [],
+        'esr': [],
+        'drop_rate': [],
+        'sleep_ratio': [],
+        'power_efficiency': [],
+        'switch_freq': [],
         'dropped_mbps': [],
-        'power_kw': [],
+        'save_power_kw': [],
         'epsilon': []
     }
 
@@ -57,9 +61,13 @@ def main(run_dir):
     # 开始训练循环
     for epoch in range(TRAIN_PARAMS['num_epochs']):
         np.random.shuffle(mesh_ids)
+
+        # Reward 是机器眼里的“虚拟分数”，它不对应具体的物理量。强化学习的目的是最大化每个 Episode (Mesh) 的累计回报。
+        # 因此，我们需要先算出一个 Mesh 的总 Reward，最后再求所有 Mesh 的平均 Reward，以此来评估模型的“得分能力”。
         epoch_reward = 0 
-        epoch_dropped = 0
-        epoch_save_power = 0
+        # epoch_dropped = 0
+        # epoch_save_power = 0
+        epoch_tracker = utils.MetricTracker()
         
         for i, mesh_id in enumerate(mesh_ids):
             # reset 返回两个值，该时刻的流量数据和邻接矩阵
@@ -70,9 +78,9 @@ def main(run_dir):
             
             # 临时统计单个 Mesh 的掉线和能耗
             mesh_reward = 0
-            mesh_dropped = 0
-            mesh_save_power = 0
-            steps = 0
+            # mesh_dropped = 0
+            # mesh_save_power = 0
+            # steps = 0
             
             while not done:
                 # 1. 决策:根据当前的状态获得动作
@@ -92,18 +100,22 @@ def main(run_dir):
                 adj = next_adj
                 mesh_reward += reward
 
-                # 累加 Info 数据
-                mesh_dropped += info['dropped_mbps']
-                mesh_save_power += info['save_power_w']
-                steps += 1
+                epoch_tracker.update(info, actions)
+
+                # # 累加 Info 数据
+                # mesh_dropped += info['dropped_mbps']
+                # mesh_save_power += info['save_power_w']
+                # steps += 1
             
             #Reward 追求的是“总和最大化”，而 Power 和 Dropped 追求的是“平均性能的可比性”
             epoch_reward += mesh_reward
-            epoch_dropped += (mesh_dropped / steps) 
-            epoch_save_power += (mesh_save_power / steps)
-            total_step += 1
+            # epoch_dropped += (mesh_dropped / steps) 
+            # epoch_save_power += (mesh_save_power / steps)
+            # total_step += 1
 
             agent.decay_epsilon()
+
+            epoch_tracker.new_episode() #
 
             # 打印进度
             if i % 20 == 0: 
@@ -112,13 +124,29 @@ def main(run_dir):
                       f"Mesh {mesh_id:<3} | Rw: {mesh_reward:.1f} | Sp: {info['save_power_w']:.1f} | "
                       f"Drop: {info['dropped_mbps']:.1f} | Eps: {agent.epsilon:.3f}")
 
+        # --- Epoch 结束，结算指标 ---
+        
+        # 1. 计算平均 Reward
         avg_reward = epoch_reward / len(mesh_ids)
-        avg_dropped = epoch_dropped / len(mesh_ids)
-        avg_save_power = epoch_save_power / len(mesh_ids)
+        
+        # 2. 从 Tracker 获取工程物理指标
+        # 【重要注释：为什么物理指标不用平均值？】
+        # 假设 Mesh A 需求 1000M，掉线 100M (掉线率 10%)
+        # 假设 Mesh B 需求 10M，掉线 5M (掉线率 50%)
+        # 如果我们简单取平均，掉线率是 (10%+50%)/2 = 30%，这就严重放大了边缘情况的影响。
+        # epoch_tracker 的底层是：先用积累值算出 (100+5) / (1000+10) = 10.3%，这才是真正严谨的“宏观掉线率 (Macro Drop Rate)”。
+        metrics = epoch_tracker.report()
+        # avg_dropped = metrics['dropped_mbps'] / len(mesh_ids)
+        # avg_save_power = metrics['save_power_w'] / len(mesh_ids)
         
         history['rewards'].append(avg_reward)
-        history['dropped_mbps'].append(avg_dropped)
-        history['save_power_kw'].append(avg_save_power)
+        history['esr'].append(metrics['ESR (%)'])
+        history['drop_rate'].append(metrics['Drop Rate (%)'])
+        history['sleep_ratio'].append(metrics['Sleep Ratio (%)'])
+        history['power_efficiency'].append(metrics['Power Efficiency (Mbps/kW)'])
+        history['switch_freq'].append(metrics['Switching Frequency (%)'])
+        history['dropped_mbps'].append(metrics['Total Dropped (Mb)'])
+        history['save_power_kw'].append(metrics['Total Saved Energy (kW)'])
         history['epsilon'].append(agent.epsilon)
 
         print(f"Epoch {epoch+1} 完成! 平均奖励: {avg_reward:.2f}\n")
@@ -151,27 +179,6 @@ def main(run_dir):
     # ==========================================
     print("正在生成可视化结果...")
     utils.plot_learning_curve(history, run_dir + "/train_results")
-
-    # final_best_model_path = "未找到最佳模型"
-    
-    # # 原始最佳模型路径 (在循环中被反复覆盖的那个文件)
-    # original_best_path = os.path.join(run_dir, 'best_model.pth')
-    
-    # if os.path.exists(original_best_path) and best_epoch != -1:
-    #     # 构造新名字: best_model_epoch_159_rw_-30.53.pth
-    #     new_best_name = f'best_model_epoch_{best_epoch}_rw_{best_reward:.2f}.pth'
-    #     new_best_path = os.path.join(run_dir, new_best_name)
-        
-    #     try:
-    #         os.rename(original_best_path, new_best_path)
-    #         final_best_model_path = new_best_path
-    #         print(f"最佳模型已重命名为: {new_best_name}")
-    #     except OSError as e:
-    #         print(f"重命名失败: {e}")
-    #         final_best_model_path = original_best_path # 回退到旧名字
-    # else:
-    #     # 如果训练没跑起来，或者逻辑有问题导致没生成 best_model
-    #     final_best_model_path = original_best_path
 
     # 【新增 3】 输出最终总结
     print("="*50)

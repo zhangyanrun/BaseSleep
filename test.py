@@ -1,5 +1,4 @@
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 import argparse
 import pickle
 import json
@@ -70,7 +69,7 @@ def evaluate(run_dir, mode='drl'):
         device=TRAIN_PARAMS['device']
         )
         # 加载权重
-        model_path = os.path.join(run_dir, 'best_model_epoch_137_rw_102.36.pth') # 需要修改
+        model_path = os.path.join(run_dir, 'best_model_epoch_118_rw_23.30.pth') # 需要修改
         if not os.path.exists(model_path):
             print(f"警告：找不到指定的模型文件 {model_path}，尝试加载 final_model.pth ...")
             model_path = os.path.join(run_dir, 'final_model.pth')
@@ -102,7 +101,7 @@ def evaluate(run_dir, mode='drl'):
     mesh_metrics_list = [] # 【新增】用于存储每个 Mesh 的独立表现
     
     # 采样用于时间序列画图的 Mesh (比如选第 0 个)
-    sample_mesh_id = mesh_ids[0]
+    # sample_mesh_id = mesh_ids[0]
     sample_history = {'traffic': [], 'power_base': [], 'power_ai': [], 'active_rate': []}
     
     print("开始评估...")
@@ -110,11 +109,13 @@ def evaluate(run_dir, mode='drl'):
         features, adj = env.reset(mesh_id)
         done = False
         
+        # 【统一接口】局部 Tracker，用于计算当前这个 Mesh 独有的分数
+        local_tracker = utils.MetricTracker()
         # --- 单个 Mesh 的临时统计器 ---
-        local_base_energy = 0.0
-        local_ai_energy = 0.0
-        local_demand = 0.0
-        local_dropped = 0.0
+        # local_base_energy = 0.0
+        # local_ai_energy = 0.0
+        # local_demand = 0.0
+        # local_dropped = 0.0
         local_steps = 0
         local_load_sum = 0.0 # 用于计算平均负载
         
@@ -126,49 +127,58 @@ def evaluate(run_dir, mode='drl'):
             global_tracker.update(info, actions)
             
             # 2. 更新局部统计 (用于分布图)
-            local_base_energy += info['baseline_total_w']
-            local_ai_energy += info['actual_total_w']
-            local_demand += info['total_demand_mbps']
-            local_dropped += info['dropped_mbps']
+            local_tracker.update(info, actions)
+            # local_base_energy += info['baseline_total_w']
+            # local_ai_energy += info['actual_total_w']
+            # local_demand += info['total_demand_mbps']
+            # local_dropped += info['dropped_mbps']
             
-            # 记录负载 (归一化值)
-            # features: [N, 5], 第0列是 load ratio
-            # 我们取当前时刻所有基站的平均负载率
+            # # 记录负载 (归一化值)
+            # # features: [N, 5], 第0列是 load ratio
+            # # 我们取当前时刻所有基站的平均负载率
             current_avg_load = np.mean(features[:, 0])
             local_load_sum += current_avg_load
             
             local_steps += 1
             
             # 3. 记录采样 Mesh 的时间序列 (用于原来的 plot_sample_mesh)
-            if mesh_id == sample_mesh_id:
-                sample_history['traffic'].append(np.sum(features[:, 0]))
-                sample_history['power_base'].append(info['baseline_total_w'])
-                sample_history['power_ai'].append(info['actual_total_w'])
-                sample_history['active_rate'].append(np.mean(actions))
+            # if mesh_id == sample_mesh_id:
+            #     sample_history['traffic'].append(np.sum(features[:, 0]))
+            #     sample_history['power_base'].append(info['baseline_total_w'])
+            #     sample_history['power_ai'].append(info['actual_total_w'])
+            #     sample_history['active_rate'].append(np.mean(actions))
+
+            local_metrics = local_tracker.report()
+            mesh_metrics_list.append({
+            'mesh_id': mesh_id,
+            'esr': local_metrics['ESR (%)'],
+            'drop_rate': local_metrics['Drop Rate (%)'],
+            'avg_load': local_load_sum / max(local_steps, 1)
+            })
             
             features = next_features
             adj = next_adj
+        global_tracker.new_episode()
+        # # --- 单个 Mesh 循环结束，计算该 Mesh 的指标 ---
+        # if local_base_energy > 0:
+        #     m_esr = (local_base_energy - local_ai_energy) / local_base_energy * 100
+        # else:
+        #     m_esr = 0.0
             
-        # --- 单个 Mesh 循环结束，计算该 Mesh 的指标 ---
-        if local_base_energy > 0:
-            m_esr = (local_base_energy - local_ai_energy) / local_base_energy * 100
-        else:
-            m_esr = 0.0
+        # if local_demand > 0:
+        #     m_drop = (local_dropped / local_demand) * 100
+        # else:
+        #     m_drop = 0.0
             
-        if local_demand > 0:
-            m_drop = (local_dropped / local_demand) * 100
-        else:
-            m_drop = 0.0
-            
-        m_avg_load = local_load_sum / max(local_steps, 1)
+        # m_avg_load = local_load_sum / max(local_steps, 1)
         
-        # 存入列表
-        mesh_metrics_list.append({
-            'mesh_id': mesh_id,
-            'esr': m_esr,
-            'drop_rate': m_drop,
-            'avg_load': m_avg_load
-        })
+        # # 存入列表
+        # mesh_metrics_list.append({
+        #     'mesh_id': mesh_id,
+        #     'esr': m_esr,
+        #     'drop_rate': m_drop,
+        #     'avg_load': m_avg_load
+        # })
 
     # ==========================================
     # 4. 输出结果

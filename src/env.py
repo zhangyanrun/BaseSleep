@@ -9,16 +9,16 @@ class NetworkEnv:
         bs_config: 物理参数配置字典
         """
         self.data = processed_data
-        # self.traffic_data = processed_data['traffic_tensor']
 
         self.bs_config = bs_config
+        
         self.w_energy_saving = w_energy_saving
         self.qos_alpha = qos_alpha
         self.qos_beta = qos_beta
         self.w_drop = w_drop
         self.global_scale = global_scale
 
-        # 【新增】保存训练/测试模式标志位
+        # 保存训练/测试模式标志位
         self.is_training = is_training
         
         # 缓存当前环境状态
@@ -27,7 +27,7 @@ class NetworkEnv:
         self.max_steps = 0
         
         # 缓存当前 Mesh 的物理属性
-        self.real_n = 0
+        self.real_n = 0                # 实际基站数量
         self.current_types = None      # 字符串类型数组
         self.cap_arr = None            # 容量数组
         self.p_zero_arr = None         # 零载功耗数组
@@ -90,13 +90,6 @@ class NetworkEnv:
 
         self.current_adj = self._calculate_directed_geo_adj(self.mesh_data['static_info'])
 
-        # === 新增：用于记录指标的初始化 ===
-        # 假设所有基站初始状态都是开启 (1)
-        self.prev_actions = np.ones(self.real_n) 
-    
-        # 初始化当前回合的累计统计变量
-        self.mesh_total_traffic = 0.0  # 总承载流量 (用于算EE)  
-        self.mesh_sleep_steps = 0.0    # 累计休眠基站比例
 
         # 返回初始状态
         return self._get_state()
@@ -146,21 +139,6 @@ class NetworkEnv:
         
         return adj
 
-    # def _get_state(self):
-    #     """
-    #     构建图数据状态。
-    #     返回: node_features, adj_matrix
-    #     """
-    #     # 1. 节点特征 [Real
-    #     # _N, 5] (Load + 4_OneHot)
-    #     current_traffic = self.mesh_data['traffic_tensor'][self.current_step][:self.real_n]
-    #     node_features = np.concatenate([current_traffic, self.type_onehot], axis=1)
-        
-    #     # 2. 邻接矩阵 [Real_N, Real_N]
-    #     # adj = self._calculate_directed_geo_adj(self.mesh_data['static_info'])
-        
-    #     return node_features, self.current_adj
-    
     def _get_state(self):
         """
         【核心修改】根据 is_training 决定 D_{t+1} 的来源
@@ -306,19 +284,6 @@ class NetworkEnv:
         # --- Total Reward ---
         reward = r_saving - p_congestion - p_drop
         reward = reward * self.global_scale
-
-        # === 新增：计算三大指标 ===
-        # 1. 累计本步流量 (用于事后算 EE)
-        self.mesh_total_traffic += np.sum(actual_load_mbps)
-    
-        # # 3. 计算并累计休眠比例 (动作中 0 的比例)
-        # # np.mean(action == 0) 会算出一个 0~1 的小数，比如 0.3 表示 30% 基站休眠
-        # sleep_ratio = np.mean(action == 0)
-        # self.mesh_sleep_steps += sleep_ratio
-    
-        # # 更新 prev_actions，留给下一个时间步用
-        # self.prev_actions = np.copy(action)
-        # ==========================
         
         # ==========================================
         # 4. 状态更新

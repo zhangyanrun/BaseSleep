@@ -6,6 +6,9 @@ import os
 import time
 
 class Logger(object):
+    '''
+    日志记录器和配置保存工具
+    '''
     def __init__(self, filename='default.log', stream=sys.stdout):
         self.terminal = stream
         self.log = open(filename, 'a', encoding='utf-8') # 追加模式，指定编码防止乱码
@@ -24,7 +27,7 @@ class Logger(object):
 class MetricTracker:
     """
     评估指标计算器。
-    负责在测试循环中累加数据，并计算最终的 ESR, DropRate, SleepRatio, PowerEfficiency。
+    计算 ESR, DropRate, SleepRatio, PowerEfficiency, SwitchFreq
     """
     def __init__(self):
         self.reset()
@@ -38,6 +41,16 @@ class MetricTracker:
         self.total_steps = 0
         self.total_bs_count = 0      # 累计遍历过的基站总数 (用于分母)
         self.total_sleep_count = 0   # 累计休眠的基站总数 (用于分子)
+
+        self.total_switch_count = 0  
+        self.prev_actions = None      # 用于计算切换频率
+
+    def new_episode(self):
+        """
+        在新的一局（新的 Mesh）开始时调用，
+        仅清空上一步的动作记录，但不清空累计的能耗和流量等全局指标。
+        """
+        self.prev_actions = None
 
     def update(self, info, actions):
         """
@@ -61,12 +74,19 @@ class MetricTracker:
         
         self.total_bs_count += num_bs
         self.total_sleep_count += num_sleep
+
+        # 计算状态切换次数
+        if self.prev_actions is not None:
+            switch_count = np.sum(np.abs(actions - self.prev_actions))
+            self.total_switch_count += switch_count
+            
+        self.prev_actions = np.copy(actions)
         
         self.total_steps += 1
 
     def report(self):
         """
-        计算并返回最终的四大指标
+        返回所有计算完毕的工程指标
         """
         # 1. 节能率 (ESR)
         # (基准 - AI) / 基准
@@ -94,19 +114,25 @@ class MetricTracker:
         # 承载流量 (Mbps) / 消耗电能 (kW)
         # 承载流量 = 总需求 - 掉线
         carried_traffic = self.total_traffic_demand_mbps - self.total_dropped_mbps
-        # 瓦转千瓦
         total_ai_kw = self.total_ai_energy_w / 1000.0
-        
         if total_ai_kw > 0:
             power_efficiency = carried_traffic / total_ai_kw
         else:
             power_efficiency = 0.0
+
+        #转换频率
+        if self.total_steps > 1:
+            bs_per_step = self.total_bs_count / self.total_steps 
+            switch_freq = (self.total_switch_count / ((self.total_steps - 1) * bs_per_step)) * 100
+        else:
+            switch_freq = 0.0
 
         return {
             "ESR (%)": esr,
             "Drop Rate (%)": drop_rate,
             "Sleep Ratio (%)": sleep_ratio,
             "Power Efficiency (Mbps/kW)": power_efficiency,
+            "Switching Frequency (%)": switch_freq,
             # 附带一些绝对值数据方便查阅
             "Total Saved Energy (kW)": saved_energy / 1000.0,
             "Total Dropped (Mb)": self.total_dropped_mbps
@@ -127,17 +153,15 @@ def save_config_to_json(save_dir, config_dict):# 将配置字典保存为 JSON �
 
 def plot_learning_curve(history, save_dir):
     """
-    绘制训练曲线并保存到指定目录
-    history: 数据字典
-    save_dir: 图片保存的文件夹路径 (即 timestamp 文件夹)
+    绘制训练阶段的学习曲线并保存到指定目录。
+    支持自适应绘制，只要 history 字典里有该指标就会自动画出来。
     """
-    # 这里的 save_dir 已经是 create 好的 timestamp 文件夹了
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
     
     epochs = range(1, len(history['rewards']) + 1)
     
-    # 辅助函数: 滑动平均
+    # 辅助函数: 滑动平均，用于让曲线更平滑，更容易看出收敛趋势
     def moving_average(data, window_size=5):
         if len(data) < window_size:
             return data
@@ -145,50 +169,99 @@ def plot_learning_curve(history, save_dir):
 
     plt.style.use('default')
 
-    # --- 图 1: Reward ---
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history['rewards'], alpha=0.3, color='gray', label='Raw')
-    smooth_rw = moving_average(history['rewards'])
-    plt.plot(epochs[:len(smooth_rw)], smooth_rw, color='blue', linewidth=2, label='Smoothed')
-    plt.title('Average Reward')
-    plt.xlabel('Epoch')
-    plt.ylabel('Reward')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.savefig(os.path.join(save_dir, 'curve_reward.png'), dpi=300)
-    plt.close()
+    # ==========================================
+    # 图 1: 综合奖励曲线 (Reward)
+    # 含义: 智能体的“考试总分”。反映了模型是否在学习。
+    # 趋势: 应该稳步上升，最终在一个区间内震荡收敛。
+    # ==========================================
+    if 'rewards' in history:
+        plt.figure(figsize=(10, 6))
+        plt.plot(epochs, history['rewards'], alpha=0.3, color='gray', label='Raw')
+        smooth_rw = moving_average(history['rewards'])
+        plt.plot(epochs[:len(smooth_rw)], smooth_rw, color='blue', linewidth=2, label='Smoothed')
+        plt.title('Training: Average Reward per Epoch')
+        plt.xlabel('Epoch')
+        plt.ylabel('Reward')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig(os.path.join(save_dir, 'curve_1_reward.png'), dpi=300)
+        plt.close()
 
-    # --- 图 2: Drop ---
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history['dropped_mbps'], color='red', alpha=0.8)
-    plt.title('Average Dropped Traffic')
-    plt.xlabel('Epoch')
-    plt.ylabel('Mbps')
-    plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(save_dir, 'curve_dropped.png'), dpi=300)
-    plt.close()
+    # ==========================================
+    # 图 2: 掉线率曲线 (Drop Rate)
+    # 含义: 服务质量(QoS)的核心指标。表示因为错误关机导致无法服务的流量比例。
+    # 趋势: 应该在训练初期较高，随着模型变聪明，迅速下降并逼近 0%。
+    # ==========================================
+    if 'drop_rate' in history:
+        plt.figure(figsize=(10, 6))
+        plt.plot(epochs, history['drop_rate'], color='red', alpha=0.8)
+        plt.title('Training: QoS - Drop Rate')
+        plt.xlabel('Epoch')
+        plt.ylabel('Drop Rate (%)')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(save_dir, 'curve_2_dropped.png'), dpi=300)
+        plt.close()
 
-    # --- 图 3: Power ---
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history['power_kw'], color='green', alpha=0.8)
-    plt.title('Average Saved Power Consumption')
-    plt.xlabel('Epoch')
-    plt.ylabel('kW')
-    plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(save_dir, 'curve_power.png'), dpi=300)
-    plt.close()
+    # ==========================================
+    # 图 3: 节能率曲线 (Energy Saving Ratio, ESR)
+    # 含义: 经济效益的核心指标。表示相较于所有基站全开，AI 帮你省了百分之几的电。
+    # 趋势: 通常会先随着掉线率一起下降（模型怕掉线不敢关机），然后在确保不掉线的前提下，慢慢上升并稳定。
+    # ==========================================
+    if 'esr' in history:
+        plt.figure(figsize=(10, 6))
+        plt.plot(epochs, history['esr'], color='green', alpha=0.8)
+        plt.title('Training: Economy - Energy Saving Ratio (ESR)')
+        plt.xlabel('Epoch')
+        plt.ylabel('ESR (%)')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(save_dir, 'curve_3_esr.png'), dpi=300)
+        plt.close()
 
-    # --- 图 4: Epsilon ---
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, history['epsilon'], color='orange', linestyle='--')
-    plt.title('Epsilon Decay')
-    plt.xlabel('Epoch')
-    plt.ylabel('Epsilon')
-    plt.grid(True, alpha=0.3)
-    plt.savefig(os.path.join(save_dir, 'curve_epsilon.png'), dpi=300)
-    plt.close()
+    # ==========================================
+    # 图 4: 平均休眠率 (Sleep Ratio)
+    # 含义: 宏观物理指标。表示在整个训练周期内，平均有多少比例的基站处于关闭状态。
+    # 趋势: 反映了策略的激进程度，通常与 ESR 走势高度相关。
+    # ==========================================
+    if 'sleep_ratio' in history:
+        plt.figure(figsize=(10, 6))
+        plt.plot(epochs, history['sleep_ratio'], color='purple', alpha=0.8)
+        plt.title('Training: Physical - Sleep Ratio')
+        plt.xlabel('Epoch')
+        plt.ylabel('Sleep Ratio (%)')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(save_dir, 'curve_4_sleep_ratio.png'), dpi=300)
+        plt.close()
+        
+    # ==========================================
+    # 图 5: 开关频率 (Switching Frequency)
+    # 含义: 硬件损耗指标。表示基站状态(0/1)发生切换的频繁程度。
+    # 趋势: 越低越好。如果该值居高不下，说明模型在“反复横跳”，缺乏稳定性。
+    # ==========================================
+    if 'switch_freq' in history:
+        plt.figure(figsize=(10, 6))
+        plt.plot(epochs, history['switch_freq'], color='brown', alpha=0.8)
+        plt.title('Training: Hardware - Switching Frequency')
+        plt.xlabel('Epoch')
+        plt.ylabel('Switch Frequency (%)')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(save_dir, 'curve_5_switch_freq.png'), dpi=300)
+        plt.close()
 
-    print(f"可视化图片已保存至: {save_dir}")
+    # ==========================================
+    # 图 6: Epsilon 衰减曲线
+    # 含义: 算法自身的超参数监控。展示了模型从“随机探索(1.0)”到“利用经验(0.05)”的过程。
+    # ==========================================
+    if 'epsilon' in history:
+        plt.figure(figsize=(10, 6))
+        plt.plot(epochs, history['epsilon'], color='orange', linestyle='--')
+        plt.title('Algorithm: Epsilon Decay')
+        plt.xlabel('Epoch')
+        plt.ylabel('Epsilon')
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(save_dir, 'curve_6_epsilon.png'), dpi=300)
+        plt.close()
+
+    print(f"训练曲线可视化图片已保存至: {save_dir}")
 
 def plot_sample_mesh(history, save_dir, mesh_id):
     """
@@ -245,18 +318,16 @@ def plot_test_distribution(mesh_metrics, save_dir):
         os.makedirs(save_dir)
         
     # 提取数据列
-    esrs = [m['esr'] for m in mesh_metrics]
-    drops = [m['drop_rate'] for m in mesh_metrics]
-    loads = [m['avg_load'] for m in mesh_metrics]
-    # 避免除零或无效值
-    esrs = np.array(esrs)
-    drops = np.array(drops)
-    loads = np.array(loads)
+    esrs = np.array([m.get('esr', 0) for m in mesh_metrics])
+    drops = np.array([m.get('drop_rate', 0) for m in mesh_metrics])
+    loads = np.array([m.get('avg_load', 0) for m in mesh_metrics])
 
     plt.style.use('default')
     
     # ==========================================
     # 图 1: 节能率分布直方图 (ESR Histogram)
+    # 含义: 评估模型泛化能力。看看模型在不同的城市网格(Mesh)中，是不是都能稳定省电。
+    # 期望表现: 柱子整体越靠右（省电越多）越好，且方差不要太大。
     # ==========================================
     plt.figure(figsize=(10, 6))
     plt.hist(esrs, bins=20, color='green', alpha=0.7, edgecolor='black')
@@ -269,38 +340,41 @@ def plot_test_distribution(mesh_metrics, save_dir):
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    plt.savefig(os.path.join(save_dir, 'dist_esr_hist.png'), dpi=300)
+    plt.savefig(os.path.join(save_dir, 'dist_1_esr_hist.png'), dpi=300)
     plt.close()
 
     # ==========================================
     # 图 2: 掉线率分布箱线图 (Drop Rate Boxplot)
+    # 含义: 评估极端崩溃风险。箱线图可以一眼看出有没有产生灾难性掉线的异常区域。
+    # 期望表现: 整个箱体最好都被压扁在 0% 刻度线上。
     # ==========================================
     plt.figure(figsize=(8, 6))
     plt.boxplot(drops, vert=True, patch_artist=True, boxprops=dict(facecolor="red", color="black", alpha=0.6))
-    plt.title('Distribution of Drop Rate')
+    plt.title('Distribution of Drop Rate (Lower is Better)')
     plt.ylabel('Drop Rate (%)')
     plt.grid(True, alpha=0.3)
     
-    # 在图上标注有多少个 Mesh 是 0 掉线
+    # 在图上标注有多少个 Mesh 是完美的 0 掉线
     zero_drop_count = np.sum(drops == 0)
     plt.text(0.95, 0.95, f'{zero_drop_count}/{len(drops)} Meshes have 0% Drop', 
              transform=plt.gca().transAxes, ha='right', va='top', fontsize=12, 
              bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
-    plt.savefig(os.path.join(save_dir, 'dist_drop_boxplot.png'), dpi=300)
+    plt.savefig(os.path.join(save_dir, 'dist_2_drop_boxplot.png'), dpi=300)
     plt.close()
 
     # ==========================================
     # 图 3: 负载 vs 节能率 散点图 (Load vs ESR)
+    # 含义: 策略的“智能程度”。证明节能不是碰运气，而是因为网络闲置。
+    # 期望表现: 明显的负相关趋势线（向右下方倾斜）。即负载越低，网络越空闲，模型关停的基站越多，省电率越高。
     # ==========================================
-    # 这张图非常有意义，它能回答“是不是只有负载低的时候才能节能？”
     plt.figure(figsize=(10, 6))
     plt.scatter(loads, esrs, c='blue', alpha=0.6, edgecolors='w', s=60)
     
-    # 拟合一条趋势线
-    if len(loads) > 1:
+    # 拟合一条趋势线 (仅在有足够多数据点且不报错的情况下拟合)
+    if len(loads) > 1 and np.var(loads) > 0:
         m, b = np.polyfit(loads, esrs, 1)
-        plt.plot(loads, m*loads + b, color='red', linestyle='--', alpha=0.8, label=f'Trend')
+        plt.plot(loads, m*loads + b, color='red', linestyle='--', alpha=0.8, label=f'Trend Line')
     
     plt.title('Correlation: Traffic Load vs Energy Saving')
     plt.xlabel('Average Traffic Load Ratio (0-1)')
@@ -308,10 +382,10 @@ def plot_test_distribution(mesh_metrics, save_dir):
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    plt.savefig(os.path.join(save_dir, 'scatter_load_vs_esr.png'), dpi=300)
+    plt.savefig(os.path.join(save_dir, 'dist_3_scatter_load_vs_esr.png'), dpi=300)
     plt.close()
 
-    print(f"📊 全局分布可视化图表已保存至: {save_dir}")
+    print(f"全局分布可视化图表已保存至: {save_dir}")
 
 def pad_mesh_data(dataset):
     """

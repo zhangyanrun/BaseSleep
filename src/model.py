@@ -5,9 +5,9 @@ import torch.nn.functional as F
 class GCN_QNetwork(nn.Module):
     def __init__(self, input_dim=16, hidden_dim1=64, hidden_dim2=128, gcn_output_dim=16):
         """
-        input_dim: 原始特征维度 (例如 5: 1 Load + 4 OneHot Type)
+        input_dim: 原始特征维度
         hidden_dim: GCN 中间层维度
-        gcn_output_dim: GCN 最终输出的向量长度 (你要求的 16)
+        gcn_output_dim: GCN 最终输出的向量长度
         """
         super(GCN_QNetwork, self).__init__()
         

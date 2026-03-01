@@ -6,32 +6,32 @@ BS_CONFIG = {
         'capacity': 300.0,
         'radius_eff': 500.0, 
         'radius_max': 1500.0,
-        'p_zero': 400.0,      # 800W * 0.6
-        'slope': 200.0,       # 800W - 480W
+        'p_zero': 400.0,      
+        'slope': 200.0,     
         'p_sleep': 80.0
     },
     '4G_micro': {
         'capacity': 100.0,
         'radius_eff': 200.0,
         'radius_max': 300.0,
-        'p_zero': 100.0,       # 150W * 0.6
-        'slope': 60.0,        # 150W - 90W
+        'p_zero': 100.0,       
+        'slope': 60.0,       
         'p_sleep': 20.0
     },
     '5G_macro': {
         'capacity': 2000.0,
         'radius_eff': 300.0,
         'radius_max': 1000.0,
-        'p_zero': 1000.0,      # 1200W * 0.6
-        'slope': 500.0,       # 1200W - 720W
+        'p_zero': 1000.0,      
+        'slope': 500.0,      
         'p_sleep': 150.0
     },
     '5G_micro': {
         'capacity': 800.0,
         'radius_eff': 100.0,
         'radius_max': 300.0,
-        'p_zero': 180.0,      # 300W * 0.6
-        'slope': 120.0,       # 300W - 180W
+        'p_zero': 180.0,      
+        'slope': 120.0,      
         'p_sleep': 40.0
     }
 }
@@ -80,8 +80,7 @@ RL_PARAMS = {
     # 经验回放池大小
     'memory_size': 10000,
     
-    # 训练批次大小 (Batch Size)
-    # 注意: PS-IDQN 每次训练一个 Mesh，这里指从 Buffer 中采样的 Mesh 数量
+    # 注意: PS-IDQN 每次训练一个 Mesh，这里指从 Buffer 中采样的数量
     'batch_size': 64
     }
 
@@ -89,16 +88,15 @@ RL_PARAMS = {
 # 3. 奖励与惩罚系数 (Reward Coefficients)
 # ==========================================
 REWARD_PARAMS = {
-    # 【修改】不再直接用能耗系数，而是用“节省能耗”的缩放系数
-    'w_energy_saving': 5, 
+    # 用“节省能耗”的缩放系数
+    'w_energy_saving': 0, 
     
-    # 【新增】非线性 QoS 惩罚参数
-    # 公式: alpha * (exp(beta * load) - 1)
-    'qos_alpha': 5,   # 基础系数，控制整体惩罚幅度
-    'qos_beta': 3.5,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
+    # 非线性 QoS 惩罚参数 公式: alpha * (exp(beta * load) - 1)
+    'qos_alpha': 0,     # 基础系数，控制整体惩罚幅度
+    'qos_beta': 5,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
     
     # 掉线依然是不可接受的，保留最严厉的线性惩罚
-    'w_drop': 5,
+    'w_drop': 20,
 
     'global_scale': 0.00001
 }
@@ -108,9 +106,8 @@ REWARD_PARAMS = {
 # ==========================================
 TRAIN_PARAMS = {
     'num_epochs': 150,      # 总共把所有 Mesh 轮询多少遍
-    'log_interval': 20,    # 每训练多少个 Mesh 打印一次日志
-    'target_update': 10,   # 每多少个 Mesh 更新一次目标网络
-    # 'device': "cuda" if torch.cuda.is_available() else "cpu",
+    'log_interval': 20,     # 每训练多少个 Mesh 打印一次日志
+    # 'target_update': 10,    # 每多少个 Mesh 更新一次目标网络
     'device' : 'cuda:0',
     'train_data_path': 'data/dataset_3d.pkl', 
     'test_data_path': 'data/dataset_3d.pkl',

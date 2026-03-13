@@ -89,16 +89,20 @@ RL_PARAMS = {
 # ==========================================
 REWARD_PARAMS = {
     # 用“节省能耗”的缩放系数
-    'w_energy_saving': 0, 
+    'w_energy_saving': 12, 
     
     # 非线性 QoS 惩罚参数 公式: alpha * (exp(beta * load) - 1)
-    'qos_alpha': 0,     # 基础系数，控制整体惩罚幅度
-    'qos_beta': 5,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
-    
-    # 掉线依然是不可接受的，保留最严厉的线性惩罚
-    'w_drop': 20,
+    'qos_alpha': 5,     # 基础系数，控制整体惩罚幅度
+    'qos_beta': 6,    # 指数系数，控制"陡峭"程度。beta=6时，Load=1.0 -> exp(6)≈403 (惩罚巨大)
+    'qos_threshold': 0.8,   # 安全负载阈值 (rho_th)，例如 0.8 表示 80%
 
-    'global_scale': 0.00001
+    # 掉线依然是不可接受的，保留最严厉的线性惩罚
+    'w_drop': 150,
+
+    # 假设一次切换惩罚相当于扣掉省 100W 电的奖励，则设为 500 (100 * 5)
+    'w_switch': 200,
+
+    'global_scale': 0.000001
 }
 
 # ==========================================
@@ -109,8 +113,8 @@ TRAIN_PARAMS = {
     'log_interval': 20,     # 每训练多少个 Mesh 打印一次日志
     # 'target_update': 10,    # 每多少个 Mesh 更新一次目标网络
     'device' : 'cuda:0',
-    'train_data_path': 'data/dataset_3d.pkl', 
-    'test_data_path': 'data/dataset_3d.pkl',
+    'train_data_path': 'data/dataset_3d_test01.pkl', 
+    'test_data_path': 'data/dataset_3d_test01.pkl',
     'save_path' : "train_experiments"
 
 }

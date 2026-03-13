@@ -134,7 +134,11 @@ class MetricTracker:
             "Power Efficiency (Mbps/kW)": power_efficiency,
             "Switching Frequency (%)": switch_freq,
             # 附带一些绝对值数据方便查阅
+            "Total Baseline Energy (kW)": self.total_baseline_energy_w / 1000.0,
+            "Total Consumed Energy (kW)": self.total_ai_energy_w / 1000.0,
             "Total Saved Energy (kW)": saved_energy / 1000.0,
+            "Total Traffic Demand (Mbps)": self.total_traffic_demand_mbps,
+            "Total Carried Traffic (Mbps)": carried_traffic,
             "Total Dropped (Mb)": self.total_dropped_mbps
         }
 

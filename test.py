@@ -6,6 +6,7 @@ import torch
 import sys
 import numpy as np
 from tqdm import tqdm 
+import pandas as pd
 
 from src.agent import PS_DQNAgent
 from src.env import NetworkEnv
@@ -14,8 +15,6 @@ from src.baselines import AllOnAgent, RandomAgent
 from src import utils
 from src.config import BS_CONFIG
 
-# 注意：plot_sample_mesh 需要你自己保留在 test.py 或者也移到 utils.py
-# 这里假设你把 plot_sample_mesh 留在了 test.py 或者 utils.py 中
 
 def evaluate(run_dir, mode='drl'):
     # 1. 加载配置 (保持不变)
@@ -32,7 +31,7 @@ def evaluate(run_dir, mode='drl'):
     REWARD_PARAMS = all_configs['REWARD_PARAMS']
     TRAIN_PARAMS = all_configs['TRAIN_PARAMS']
     
-    test_data_path = "data/dataset_3d.pkl" 
+    test_data_path = TRAIN_PARAMS.get('test_data_path', None)
     
     print(f"正在加载测试数据集: {test_data_path} ...")
     with open(test_data_path, 'rb') as f:
@@ -44,7 +43,9 @@ def evaluate(run_dir, mode='drl'):
                      w_energy_saving=REWARD_PARAMS['w_energy_saving'],
                      qos_alpha=REWARD_PARAMS['qos_alpha'],
                      qos_beta=REWARD_PARAMS['qos_beta'],
+                     qos_threshold=REWARD_PARAMS['qos_threshold'],
                      w_drop=REWARD_PARAMS['w_drop'],
+                     w_switch=REWARD_PARAMS['w_switch'],
                      global_scale=REWARD_PARAMS['global_scale'],
                      is_training=False
                      )
@@ -69,7 +70,7 @@ def evaluate(run_dir, mode='drl'):
         device=TRAIN_PARAMS['device']
         )
         # 加载权重
-        model_path = os.path.join(run_dir, 'best_model_epoch_118_rw_23.30.pth') # 需要修改
+        model_path = os.path.join(run_dir, 'best_model.pth') # 需要修改
         if not os.path.exists(model_path):
             print(f"警告：找不到指定的模型文件 {model_path}，尝试加载 final_model.pth ...")
             model_path = os.path.join(run_dir, 'final_model.pth')
@@ -98,11 +99,9 @@ def evaluate(run_dir, mode='drl'):
     # ==========================================
     global_tracker = utils.MetricTracker() # 用于计算全局总分
     
-    mesh_metrics_list = [] # 【新增】用于存储每个 Mesh 的独立表现
-    
-    # 采样用于时间序列画图的 Mesh (比如选第 0 个)
-    # sample_mesh_id = mesh_ids[0]
-    sample_history = {'traffic': [], 'power_base': [], 'power_ai': [], 'active_rate': []}
+    # 【新增】两个列表，分别存储宏观和微观数据
+    mesh_metrics_list = []  # 存储每个 Mesh 的综合平均数据
+    step_metrics_list = []  # 存储每个 Mesh 在每个 TimeStep 的详细瞬时数据
     
     print("开始评估...")
     for mesh_id in tqdm(mesh_ids):
@@ -112,10 +111,6 @@ def evaluate(run_dir, mode='drl'):
         # 【统一接口】局部 Tracker，用于计算当前这个 Mesh 独有的分数
         local_tracker = utils.MetricTracker()
         # --- 单个 Mesh 的临时统计器 ---
-        # local_base_energy = 0.0
-        # local_ai_energy = 0.0
-        # local_demand = 0.0
-        # local_dropped = 0.0
         local_steps = 0
         local_load_sum = 0.0 # 用于计算平均负载
         
@@ -128,57 +123,61 @@ def evaluate(run_dir, mode='drl'):
             
             # 2. 更新局部统计 (用于分布图)
             local_tracker.update(info, actions)
-            # local_base_energy += info['baseline_total_w']
-            # local_ai_energy += info['actual_total_w']
-            # local_demand += info['total_demand_mbps']
-            # local_dropped += info['dropped_mbps']
-            
-            # # 记录负载 (归一化值)
-            # # features: [N, 5], 第0列是 load ratio
-            # # 我们取当前时刻所有基站的平均负载率
             current_avg_load = np.mean(features[:, 0])
             local_load_sum += current_avg_load
             
-            local_steps += 1
+            base_w = info.get('baseline_total_w', 0)
+            ai_w = info.get('actual_total_w', 0)
+            demand = info.get('total_demand_mbps', 0)
+            drop = info.get('dropped_mbps', 0)
             
-            # 3. 记录采样 Mesh 的时间序列 (用于原来的 plot_sample_mesh)
-            # if mesh_id == sample_mesh_id:
-            #     sample_history['traffic'].append(np.sum(features[:, 0]))
-            #     sample_history['power_base'].append(info['baseline_total_w'])
-            #     sample_history['power_ai'].append(info['actual_total_w'])
-            #     sample_history['active_rate'].append(np.mean(actions))
+            step_esr = ((base_w - ai_w) / base_w * 100) if base_w > 0 else 0.0
+            step_drop_rate = ((drop / demand) * 100) if demand > 0 else 0.0
+            
+            num_bs = len(actions)
+            num_active = np.sum(actions)
+            num_sleep = num_bs - num_active
 
-            local_metrics = local_tracker.report()
-            mesh_metrics_list.append({
+            step_metrics_list.append({
+                'Mesh_ID': mesh_id,
+                'TimeStep': local_steps,
+                'Avg_Load_Ratio': current_avg_load,
+                'Baseline_Power_W': base_w,
+                'AI_Power_W': ai_w,
+                'Saved_Power_W': base_w - ai_w,
+                'Demand_Mbps': demand,
+                'Dropped_Mbps': drop,
+                'Instant_ESR(%)': step_esr,
+                'Instant_DropRate(%)': step_drop_rate,
+                'Active_BS_Count': num_active,
+                'Sleep_BS_Count': num_sleep,
+                'Sleep_Ratio(%)': (num_sleep / num_bs * 100) if num_bs > 0 else 0
+            })
+
+            local_steps += 1
+            features = next_features
+            adj = next_adj
+
+        global_tracker.new_episode()
+        
+        # ==========================================
+        # 【修改】记录该 Mesh 的总计/平均指标
+        # 将 Tracker 计算出的精准宏观结果解包，结合 load 放进字典
+        # ==========================================
+        local_metrics = local_tracker.report()
+        m_avg_load = local_load_sum / max(local_steps, 1)
+        
+        # 为了兼容 utils 中旧的散点图画图函数，必须保留这三个小写 key
+        mesh_record = {
             'mesh_id': mesh_id,
             'esr': local_metrics['ESR (%)'],
             'drop_rate': local_metrics['Drop Rate (%)'],
-            'avg_load': local_load_sum / max(local_steps, 1)
-            })
-            
-            features = next_features
-            adj = next_adj
-        global_tracker.new_episode()
-        # # --- 单个 Mesh 循环结束，计算该 Mesh 的指标 ---
-        # if local_base_energy > 0:
-        #     m_esr = (local_base_energy - local_ai_energy) / local_base_energy * 100
-        # else:
-        #     m_esr = 0.0
-            
-        # if local_demand > 0:
-        #     m_drop = (local_dropped / local_demand) * 100
-        # else:
-        #     m_drop = 0.0
-            
-        # m_avg_load = local_load_sum / max(local_steps, 1)
+            'avg_load': m_avg_load,
+        }
+        # 将 Tracker 里的其他高级信息也合并进去，为了存 CSV 时内容更丰满
+        mesh_record.update(local_metrics)
         
-        # # 存入列表
-        # mesh_metrics_list.append({
-        #     'mesh_id': mesh_id,
-        #     'esr': m_esr,
-        #     'drop_rate': m_drop,
-        #     'avg_load': m_avg_load
-        # })
+        mesh_metrics_list.append(mesh_record)
 
     # ==========================================
     # 4. 输出结果
@@ -192,11 +191,26 @@ def evaluate(run_dir, mode='drl'):
         print(f"{key:<30}: {value:.4f}")
     print("="*50)
 
-    # 准备保存目录
-    save_dir = os.path.join(run_dir, 'test_results')
+    # 为了不同算法对比不冲突，把结果存入带模式后缀的专属文件夹
+    save_dir = os.path.join(run_dir, f'test_results_{mode}')
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+        
+    # ==========================================
+    # 【新增核心部分】利用 Pandas 将数据一键导出为 CSV
+    # ==========================================
+    # 1. 导出高颗粒度的 Step 数据 (每行代表某 Mesh 的某 1 秒)
+    df_step = pd.DataFrame(step_metrics_list)
+    step_csv_path = os.path.join(save_dir, 'step_details_metrics.csv')
+    df_step.to_csv(step_csv_path, index=False)
     
-    # 1. 画单个 Mesh 的时间序列图 (原来的)
-    # plot_sample_mesh(sample_history, save_dir, sample_mesh_id)
+    # 2. 导出网格级的汇总数据 (每行代表某 1 个 Mesh 的全程平均表现)
+    df_mesh = pd.DataFrame(mesh_metrics_list)
+    mesh_csv_path = os.path.join(save_dir, 'mesh_average_metrics.csv')
+    df_mesh.to_csv(mesh_csv_path, index=False)
+    
+    print(f"\n✅ 高颗粒度单步数据已保存至:\n  -> {step_csv_path} (行数: {len(df_step)})")
+    print(f"✅ 网格级平均数据已保存至:\n  -> {mesh_csv_path} (行数: {len(df_mesh)})")
     
     # 2. 【新增】画全集分布图
     utils.plot_test_distribution(mesh_metrics_list, save_dir)

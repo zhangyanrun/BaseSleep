@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import pickle
 
+from src.config import BS_CONFIG
+
 def process_csvs_to_tensor(real_csv_path, pred_csv_path, output_path):
     """
     读取真实值和预测值 CSV，合并为 3D Tensor (N, T, 2) 并保存。
@@ -98,21 +100,48 @@ def build_dataset_from_tensor(topo_path, tensor_path):
         # Channel 0 = Real, Channel 1 = Pred
         mesh_data_T = mesh_data.transpose(1, 0, 2)
         
-        # --- 归一化 (关键步骤) ---
-        # 必须使用 Real Data (Channel 0) 来计算最大值，保证尺度统一
-        real_vals = mesh_data_T[:, :, 0]
-        self_max = np.max(real_vals, axis=0)
-        self_max[self_max == 0] = 1.0 # 避免除以0
+        # # --- 归一化 (关键步骤) ---
+        # # 必须使用 Real Data (Channel 0) 来计算最大值，保证尺度统一
+        # real_vals = mesh_data_T[:, :, 0]
+        # self_max = np.max(real_vals, axis=0)
+        # self_max[self_max == 0] = 1.0 # 避免除以0
         
-        # 对整个 Tensor (包括 Pred Channel) 进行归一化
-        # 这样预测值也会被缩放到同样的比例
-        norm_data = mesh_data_T / self_max[None, :, None]
+        # # 对整个 Tensor (包括 Pred Channel) 进行归一化
+        # # 这样预测值也会被缩放到同样的比例
+        # norm_data = mesh_data_T / self_max[None, :, None]
+        
+        # Dataset[mesh_id] = {
+        #     "bs_ids": np.array(valid_bs_ids),
+        #     "static_info": static_info[static_info['ID'].isin(valid_bs_ids)].reset_index(drop=True),
+        #     "traffic_tensor": norm_data, # (Time, N, 2)
+        #     "max_values": self_max       # 保存最大值以便后续反归一化
+        # }
+        # --- 物理级归一化 (核心修复) ---
+        # ==========================================
+        # 获取当前 Mesh 中所有基站的类型
+        types = static_info['Type'].values
+        cap_list = []
+        for t_str in types:
+            # 去配置文件里查该类型基站的物理容量 (如果没有，给个默认 1000.0 保底)
+            cap = BS_CONFIG.get(t_str, {}).get('capacity', 1000.0) 
+            cap_list.append(cap)
+            
+        cap_array = np.array(cap_list) # Shape: (N,)
+        
+        # 用物理容量去除真实流量，直接得到真实的负载率 (Load Ratio)
+        norm_data = mesh_data_T / cap_array[None, :, None]
+        
+        # 【关键保护机制：脏数据截断】
+        # 如果原数据里真有 19000 的毛刺，算出来的负载率会高达 9.0 (超载 900%)
+        # 这会让神经网络梯度爆炸。因此我们把最高负载率限制在 2.0 (最大允许 200% 超载)
+        norm_data = np.clip(norm_data, 0.0, 2.0)
         
         Dataset[mesh_id] = {
             "bs_ids": np.array(valid_bs_ids),
             "static_info": static_info[static_info['ID'].isin(valid_bs_ids)].reset_index(drop=True),
-            "traffic_tensor": norm_data, # (Time, N, 2)
-            "max_values": self_max       # 保存最大值以便后续反归一化
+            "traffic_tensor": norm_data, 
+            # 把 cap_array 存下来充当以前的 max_values，保持接口兼容
+            "max_values": cap_array       
         }
         
     print(f"数据集构建完成！包含 {len(Dataset)} 个 Mesh。")

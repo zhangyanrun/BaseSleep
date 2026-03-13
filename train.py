@@ -26,15 +26,26 @@ def main(run_dir):
 
     # 2. 初始化模型
     print("正在初始化模型...")
-    agent = PS_DQNAgent(input_dim=RL_PARAMS['input_dim'], hidden_dim1=RL_PARAMS['hidden_dim1'],
-                        hidden_dim2=RL_PARAMS['hidden_dim2'], gcn_output_dim=RL_PARAMS['gcn_output_dim'],
-                        lr=RL_PARAMS['lr'], gamma=RL_PARAMS['gamma'],
-                        epsilon_start=RL_PARAMS['epsilon_start'], epsilon_min=RL_PARAMS['epsilon_min'],
-                        epsilon_decay=RL_PARAMS['epsilon_decay'], memory_size=RL_PARAMS['memory_size'],
-                        batch_size=RL_PARAMS['batch_size'], device=TRAIN_PARAMS['device'])
-    env = NetworkEnv(dataset, BS_CONFIG, REWARD_PARAMS['w_energy_saving'], 
-                     REWARD_PARAMS['qos_alpha'], REWARD_PARAMS['qos_beta'],
-                     REWARD_PARAMS['w_drop'], REWARD_PARAMS['global_scale'], 
+    agent = PS_DQNAgent(input_dim=RL_PARAMS['input_dim'], 
+                        hidden_dim1=RL_PARAMS['hidden_dim1'],
+                        hidden_dim2=RL_PARAMS['hidden_dim2'], 
+                        gcn_output_dim=RL_PARAMS['gcn_output_dim'],
+                        lr=RL_PARAMS['lr'], 
+                        gamma=RL_PARAMS['gamma'],
+                        epsilon_start=RL_PARAMS['epsilon_start'], 
+                        epsilon_min=RL_PARAMS['epsilon_min'],
+                        epsilon_decay=RL_PARAMS['epsilon_decay'], 
+                        memory_size=RL_PARAMS['memory_size'],
+                        batch_size=RL_PARAMS['batch_size'], 
+                        device=TRAIN_PARAMS['device'])
+    env = NetworkEnv(dataset, BS_CONFIG, 
+                     REWARD_PARAMS['w_energy_saving'], 
+                     REWARD_PARAMS['qos_alpha'], 
+                     REWARD_PARAMS['qos_beta'],
+                     REWARD_PARAMS['qos_threshold'],
+                     REWARD_PARAMS['w_drop'], 
+                     REWARD_PARAMS['w_switch'],
+                     REWARD_PARAMS['global_scale'], 
                      is_training=True)
     
     print(f"开始训练... 共 {len(mesh_ids)} 个 Mesh, 训练 {TRAIN_PARAMS['num_epochs']} 轮 (Epochs)")

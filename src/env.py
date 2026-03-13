@@ -3,7 +3,7 @@ from src.config import PRIORITY_MAP, TYPE_TO_INDEX
 
 
 class NetworkEnv:
-    def __init__(self, processed_data, bs_config, w_energy_saving, qos_alpha, qos_beta, w_drop, global_scale, is_training=True):
+    def __init__(self, processed_data, bs_config, w_energy_saving, qos_alpha, qos_beta, qos_threshold, w_drop, w_switch, global_scale, is_training=True):
         """
         processed_data: build_dataset 生成的数据字典
         bs_config: 物理参数配置字典
@@ -15,7 +15,9 @@ class NetworkEnv:
         self.w_energy_saving = w_energy_saving
         self.qos_alpha = qos_alpha
         self.qos_beta = qos_beta
+        self.qos_threshold = qos_threshold
         self.w_drop = w_drop
+        self.w_switch = w_switch
         self.global_scale = global_scale
 
         # 保存训练/测试模式标志位
@@ -71,6 +73,8 @@ class NetworkEnv:
         
         # 初始化 One-Hot 矩阵 (N, 4)
         self.type_onehot = np.zeros((self.real_n, 4))
+
+        self.prev_actions = np.ones(self.real_n)
         
         for i, t_str in enumerate(self.current_types):
             cfg = self.bs_config.get(t_str)
@@ -275,14 +279,24 @@ class NetworkEnv:
         # --- D. QoS 非线性惩罚 (保持之前的建议) ---        
         # 使用实际负载计算风险
         safe_load = np.clip(current_load_ratios, 0, 2.0) 
-        qos_terms = self.qos_alpha * (np.exp(self.qos_beta * safe_load) - 1)
+        excess_load = np.maximum(0.0, safe_load - self.qos_threshold)
+        qos_terms = self.qos_alpha * (np.exp(self.qos_beta * excess_load) - 1)
         p_congestion = np.sum(qos_terms)
+
+        # === F. 硬件切换惩罚 ===
+        # 计算当前动作与上一步动作不同的基站数量
+        switch_count = np.sum(np.abs(actions - self.prev_actions))
+        p_switch = switch_count * self.w_switch
+        
+        # 更新 prev_actions，留给下一个时间步使用
+        self.prev_actions = np.copy(actions)
+        # ==============================
         
         # --- E. 掉线惩罚 ---
         p_drop = dropped_mbps * self.w_drop
         
         # --- Total Reward ---
-        reward = r_saving - p_congestion - p_drop
+        reward = r_saving - p_congestion - p_drop - p_switch
         reward = reward * self.global_scale
         
         # ==========================================

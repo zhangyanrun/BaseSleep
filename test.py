@@ -10,8 +10,7 @@ import pandas as pd
 
 from src.agent import PS_DQNAgent
 from src.env import NetworkEnv
-from src.baselines import AllOnAgent, RandomAgent
-# 【修改】引入新的 MetricTracker
+from src.baselines import AllOnAgent, RandomAgent, ReactiveAgent, MiLSFAgent, DDSSAgent, DFSCSAgent, REDEEMAgent, FullSleepAgent
 from src import utils
 from src.config import BS_CONFIG
 
@@ -85,7 +84,31 @@ def evaluate(run_dir, mode='drl'):
     elif mode == 'random':
         print(f"正在运行 Random (随机) 基准策略...")
         agent = RandomAgent(seed=42) # 固定种子保证可复现
-        
+
+    elif mode == 'reactive':
+        print(f"正在运行无预测的被动模式 (Reactive) 基准策略...")
+        agent = ReactiveAgent(bs_config=BS_CONFIG)
+    
+    elif mode == 'milsf':
+        print(f"正在运行 MiLSF (论文复现) 基准策略...")
+        agent = MiLSFAgent(bs_config=BS_CONFIG) # 传入配置表
+
+    elif mode == 'ddss':
+        print(f"正在运行 DDSS (数据驱动区域统筹) 基准策略...")
+        agent = DDSSAgent(bs_config=BS_CONFIG)
+    
+    elif mode == 'dfscs':
+        print(f"正在运行 DFSCS (深度优先协同休眠) 基准策略...")
+        agent = DFSCSAgent(bs_config=BS_CONFIG)
+    
+    elif mode == 'redeem':
+        print(f"正在运行 REDEEM (数据驱动能效画像与卸载) 基准策略...")
+        agent = REDEEMAgent(bs_config=BS_CONFIG)
+
+    elif mode == 'full_sleep':
+        print(f"正在运行 Full-Sleep (全休眠) 基准策略...")
+        agent = FullSleepAgent()
+    
     else:
         raise ValueError(f"未知的模式: {mode}")
     
@@ -218,7 +241,7 @@ def evaluate(run_dir, mode='drl'):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_dir', type=str, required=True)
-    parser.add_argument('--mode', type=str, default='drl', choices=['drl', 'all_on', 'random'], help="选择测试模式: drl, all_on, random")
+    parser.add_argument('--mode', type=str, default='drl', choices=['drl', 'all_on', 'random', 'reactive','milsf', 'ddss', 'dfscs', 'redeem', 'full_sleep'], help="选择测试模式: drl, all_on, random")
     args = parser.parse_args()
 
     log_path = os.path.join(args.run_dir, 'test.log')

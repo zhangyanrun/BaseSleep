@@ -79,6 +79,7 @@ def main(run_dir):
         # epoch_dropped = 0
         # epoch_save_power = 0
         epoch_tracker = utils.MetricTracker()
+        epoch_mesh_metrics_list = []
         
         for i, mesh_id in enumerate(mesh_ids):
             # reset 返回两个值，该时刻的流量数据和邻接矩阵
@@ -92,6 +93,10 @@ def main(run_dir):
             # mesh_dropped = 0
             # mesh_save_power = 0
             # steps = 0
+            # 局部 Tracker，记录单个 Mesh 的表现
+            local_tracker = utils.MetricTracker()
+            local_steps = 0
+            local_load_sum = 0.0
             
             while not done:
                 # 1. 决策:根据当前的状态获得动作
@@ -112,11 +117,16 @@ def main(run_dir):
                 mesh_reward += reward
 
                 epoch_tracker.update(info, actions)
+                local_tracker.update(info, actions)
+                
+                # ==========================================
+                # 【修改】只提取计算该 Mesh 平均负载所需的变量，删除了所有时间步的繁琐计算
+                # ==========================================
+                current_avg_load = np.mean(features[:, 0])
+                local_load_sum += current_avg_load
+                
+                local_steps += 1
 
-                # # 累加 Info 数据
-                # mesh_dropped += info['dropped_mbps']
-                # mesh_save_power += info['save_power_w']
-                # steps += 1
             
             #Reward 追求的是“总和最大化”，而 Power 和 Dropped 追求的是“平均性能的可比性”
             epoch_reward += mesh_reward
@@ -127,10 +137,24 @@ def main(run_dir):
             agent.decay_epsilon()
 
             epoch_tracker.new_episode() #
+            local_tracker.new_episode()
 
+            # ==========================================
+            # 宏观数据：记录该 Mesh 本 Epoch 的平均/总计表现
+            # ==========================================
+            local_metrics = local_tracker.report()
+            mesh_record = {
+                'Epoch': epoch + 1,
+                'Mesh_ID': mesh_id,
+                'avg_load': local_load_sum / max(local_steps, 1)
+            }
+            mesh_record.update(local_metrics)
+            epoch_mesh_metrics_list.append(mesh_record)
+
+            if (i + 1) % TRAIN_PARAMS['target_update'] == 0:
+                agent.update_target()
             # 打印进度
             if i % 20 == 0: 
-                agent.update_target()
                 print(f"Epoch {epoch+1}/{TRAIN_PARAMS['num_epochs']} | Progress {i}/{len(mesh_ids)} | "
                       f"Mesh {mesh_id:<3} | Rw: {mesh_reward:.1f} | Sp: {info['save_power_w']:.1f} | "
                       f"Drop: {info['dropped_mbps']:.1f} | Eps: {agent.epsilon:.3f}")
@@ -161,6 +185,14 @@ def main(run_dir):
         history['epsilon'].append(agent.epsilon)
 
         print(f"Epoch {epoch+1} 完成! 平均奖励: {avg_reward:.2f}\n")
+
+        # ==========================================
+        # 【修改核心】仅将当前 Epoch 的网格数据实时追加写入 CSV 
+        # ==========================================
+        mesh_csv_path = os.path.join(run_dir, 'train_mesh_average_metrics.csv')
+        df_mesh = pd.DataFrame(epoch_mesh_metrics_list)
+        df_mesh.to_csv(mesh_csv_path, mode='a', header=not os.path.exists(mesh_csv_path), index=False)
+        # ==========================================
 
         # 保存当前 Epoch 的模型
         current_model_path = os.path.join(models_dir, f'model_epoch_{epoch+1}_rw_{avg_reward:.2f}.pth')

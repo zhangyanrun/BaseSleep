@@ -89,7 +89,7 @@ RL_PARAMS = {
 # ==========================================
 REWARD_PARAMS = {
     # 用“节省能耗”的缩放系数
-    'w_energy_saving': 12, 
+    'w_energy_saving': 15, 
     
     # 非线性 QoS 惩罚参数 公式: alpha * (exp(beta * load) - 1)
     'qos_alpha': 5,     # 基础系数，控制整体惩罚幅度
@@ -111,10 +111,34 @@ REWARD_PARAMS = {
 TRAIN_PARAMS = {
     'num_epochs': 150,      # 总共把所有 Mesh 轮询多少遍
     'log_interval': 20,     # 每训练多少个 Mesh 打印一次日志
-    # 'target_update': 10,    # 每多少个 Mesh 更新一次目标网络
-    'device' : 'cuda:0',
+    'target_update': 30,    # 每多少个 Mesh 更新一次目标网络
+    'device' : 'cuda:1',
     'train_data_path': 'data/dataset_3d_test01.pkl', 
     'test_data_path': 'data/dataset_3d_test01.pkl',
     'save_path' : "train_experiments"
 
+}
+
+# ==========================================
+# 4. DeepBSC (DDPG + BT + EN) 专属超参数
+# 严格参考原论文 Table III 和 Table IV 设置
+# ==========================================
+DEEPBSC_PARAMS = {
+    # --- 网络结构参数 (Table III) ---
+    'hidden_dim1': 800,   # Actor/Critic 第一层隐藏层维度
+    'hidden_dim2': 600,   # Actor/Critic 第二层隐藏层维度
+    
+    # --- 学习率 (Table IV) ---
+    'lr_actor': 1e-4,     # Actor 学习率 (\alpha_\pi)
+    'lr_critic': 1e-3,    # Critic 学习率 (\alpha_Q)
+    
+    # --- DDPG 训练参数 ---
+    'gamma': 0.9,         # 折扣因子 (\gamma)
+    'tau': 1e-4,          # 目标网络软更新系数 (\tau) 
+    'memory_size': 10000, # 经验回放池大小 (N_{exp})
+    'batch_size': 64,     # 训练批次大小 (N_e)
+    
+    # --- Explorer Network 参数 ---
+    'explore_alpha': 0.1, # 探索者网络扰动幅度 (\alpha)
+    'explore_sigma': 0.05 # 探索者网络权重软更新系数 (\sigma) 
 }

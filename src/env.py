@@ -239,8 +239,9 @@ class NetworkEnv:
                     
                     # 如果还有剩的，强制塞给最好的
                     if remaining_demand > 0:
-                        best_idx = sorted_neighbors[0]
-                        actual_load_mbps[best_idx] += remaining_demand
+                        dropped_mbps += remaining_demand
+                        # best_idx = sorted_neighbors[0]
+                        # actual_load_mbps[best_idx] += remaining_demand
                         
                 else:
                     # 没邻居开机，直接掉线

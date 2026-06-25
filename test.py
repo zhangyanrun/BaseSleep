@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import tqdm 
 import pandas as pd
 
-from src.agent import PS_DQNAgent
+from src.agent import PS_DQNAgent, PS_MLPAgent
 from src.env import NetworkEnv
 from src.baselines import AllOnAgent, RandomAgent, ReactiveAgent, MiLSFAgent, DDSSAgent, DFSCSAgent, REDEEMAgent, FullSleepAgent
 from src import utils
@@ -76,7 +76,54 @@ def evaluate(run_dir, mode='drl'):
         
         agent.policy_net.load_state_dict(torch.load(model_path, map_location=agent.device))
         agent.policy_net.eval()
+    
+    # 【新增】变体 1：无 GCN 的 MLP 模型
+    elif mode == 'v1_mlp':
+        print(f"正在加载变体 1: PS-MLP (无 GCN) 模型进行测试...")
+        agent = PS_MLPAgent(
+            input_dim=RL_PARAMS['input_dim'],
+            hidden_dim1=RL_PARAMS['hidden_dim1'],
+            hidden_dim2=RL_PARAMS['hidden_dim2'],
+            lr=RL_PARAMS['lr'],
+            gamma=RL_PARAMS['gamma'],
+            epsilon_start=0.0, epsilon_min=0.0, epsilon_decay=0.0,
+            memory_size=RL_PARAMS['memory_size'],
+            batch_size=RL_PARAMS['batch_size'],
+            device=TRAIN_PARAMS['device']
+        )
+
+        model_path = os.path.join(run_dir, 'final_model.pth')
+        if os.path.exists(model_path):
+            agent.policy_net.load_state_dict(torch.load(model_path, map_location=agent.device))
+            agent.policy_net.eval()
+            print(f"成功加载变体 1 权重: {model_path}")
+        else:
+            print(f"严重错误：找不到权重文件 {model_path}")
         
+    # 【新增】变体 3：无预测的被动模型 (网络结构和主模型一样，只是输入数据被挖空)
+    elif mode == 'v3_reactive':
+        print(f"正在加载变体 3: Reactive PS-GDQN (无预测) 模型进行测试...")
+        agent = PS_DQNAgent(
+            input_dim=RL_PARAMS['input_dim'],
+            hidden_dim1=RL_PARAMS['hidden_dim1'],
+            hidden_dim2=RL_PARAMS['hidden_dim2'],
+            gcn_output_dim=RL_PARAMS['gcn_output_dim'],
+            lr=RL_PARAMS['lr'],
+            gamma=RL_PARAMS['gamma'],
+            epsilon_start=0.0, epsilon_min=0.0, epsilon_decay=0.0,
+            memory_size=RL_PARAMS['memory_size'],
+            batch_size=RL_PARAMS['batch_size'],
+            device=TRAIN_PARAMS['device']
+        )
+
+        model_path = os.path.join(run_dir, 'final_model.pth')
+        if os.path.exists(model_path):
+            agent.policy_net.load_state_dict(torch.load(model_path, map_location=agent.device))
+            agent.policy_net.eval()
+            print(f"成功加载变体 3 权重: {model_path}")
+        else:
+            print(f"严重错误：找不到权重文件 {model_path}")
+
     elif mode == 'all_on':
         print(f"正在运行 All-On (全开) 基准策略...")
         agent = AllOnAgent()
@@ -138,7 +185,12 @@ def evaluate(run_dir, mode='drl'):
         local_load_sum = 0.0 # 用于计算平均负载
         
         while not done:
-            actions = agent.select_actions(features, adj)
+            if mode == 'v3_reactive':
+                blind_features = features.copy()
+                blind_features[:, 1] = blind_features[:, 0]
+                actions = agent.select_actions(blind_features, adj)
+            else:
+                actions = agent.select_actions(features, adj)
             next_features, next_adj, reward, done, info = env.step(actions)
             
             # 1. 更新全局统计
@@ -241,7 +293,7 @@ def evaluate(run_dir, mode='drl'):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_dir', type=str, required=True)
-    parser.add_argument('--mode', type=str, default='drl', choices=['drl', 'all_on', 'random', 'reactive','milsf', 'ddss', 'dfscs', 'redeem', 'full_sleep'], help="选择测试模式: drl, all_on, random")
+    parser.add_argument('--mode', type=str, default='drl', choices=['drl', 'all_on', 'random', 'reactive','milsf', 'ddss', 'dfscs', 'redeem', 'full_sleep', 'v1_mlp', 'v3_reactive'], help="选择测试模式: drl, all_on, random")
     args = parser.parse_args()
 
     log_path = os.path.join(args.run_dir, 'test.log')

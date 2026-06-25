@@ -66,3 +66,19 @@ class GCN_QNetwork(nn.Module):
         q_values = self.fc3(x_out)
         
         return q_values
+
+
+class MLP_QNetwork(nn.Module):
+    """消融实验 1：移除 GCN，替换为普通全连接层"""
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2):
+        super(MLP_QNetwork, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim1)
+        self.fc2 = nn.Linear(hidden_dim1, hidden_dim2)
+        self.fc3 = nn.Linear(hidden_dim2, 2)
+
+    def forward(self, x, adj=None):
+        # 接收 adj 但完全丢弃它，彻底切断空间拓扑信息的传递
+        h = F.relu(self.fc1(x))
+        h = F.relu(self.fc2(h))
+        q_values = self.fc3(h) # [Batch, N, 2]
+        return q_values        

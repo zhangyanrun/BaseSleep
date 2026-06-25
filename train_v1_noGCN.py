@@ -8,7 +8,7 @@ import pandas as pd
 
 from src import utils
 from src.env import NetworkEnv
-from src.agent import PS_DQNAgent
+from src.agent import PS_MLPAgent
 from src.config import BS_CONFIG, TRAIN_PARAMS, RL_PARAMS, REWARD_PARAMS
 
 def main(run_dir):
@@ -25,10 +25,9 @@ def main(run_dir):
 
     # 2. 初始化模型
     print("正在初始化模型...")
-    agent = PS_DQNAgent(input_dim=RL_PARAMS['input_dim'], 
+    agent = PS_MLPAgent(input_dim=RL_PARAMS['input_dim'], 
                         hidden_dim1=RL_PARAMS['hidden_dim1'],
                         hidden_dim2=RL_PARAMS['hidden_dim2'], 
-                        gcn_output_dim=RL_PARAMS['gcn_output_dim'],
                         lr=RL_PARAMS['lr'], 
                         gamma=RL_PARAMS['gamma'],
                         epsilon_start=RL_PARAMS['epsilon_start'], 
@@ -173,7 +172,7 @@ if __name__ == "__main__":
     if not os.path.exists(ROOT_DIR):
         os.makedirs(ROOT_DIR)
 
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    timestamp = time.strftime("%Y%m%d_%H%M%S"+ "_V1_noDQN")
     run_dir = os.path.join(ROOT_DIR, timestamp)
     os.makedirs(run_dir)
 

@@ -153,7 +153,7 @@ def evaluate_twodqns(run_dir, model_name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--run_dir', type=str, required=True, help="训练输出目录 (包含 hyperparameters.json 和 models/)")
-    parser.add_argument('--model', type=str, required=True, help="要测试的模型文件名 (例如: twodqns_sleep_epoch_100.pth)")
+    parser.add_argument('--model', type=str, required=True, help="要测试的模型文件名 (例如: twodqns_sleep_epoch_150.pth)")
     args = parser.parse_args()
     
     # 确保 log 打印成功接管

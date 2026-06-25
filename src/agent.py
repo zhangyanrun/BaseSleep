@@ -5,6 +5,7 @@ import numpy as np
 import random
 from collections import deque
 from .model import GCN_QNetwork 
+from .model import MLP_QNetwork
 
 class PS_DQNAgent:
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, gcn_output_dim, lr, 
@@ -127,3 +128,20 @@ class PS_DQNAgent:
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+
+class PS_MLPAgent(PS_DQNAgent):
+    """消融实验 1：继承原智能体，仅将核心网络替换为 MLP"""
+    def __init__(self, input_dim, hidden_dim1, hidden_dim2, lr, 
+                 gamma, epsilon_start, epsilon_min, epsilon_decay, memory_size, 
+                 batch_size, device):
+        # 调用父类初始化（随便传个gcn_output_dim=16，反正不用它）
+        super().__init__(input_dim, hidden_dim1, hidden_dim2, 16, lr, 
+                         gamma, epsilon_start, epsilon_min, epsilon_decay, memory_size, 
+                         batch_size, device)
+        
+        # 【核心】：用 MLP 覆盖掉父类的 GCN
+        self.policy_net = MLP_QNetwork(input_dim, hidden_dim1, hidden_dim2).to(self.device)
+        self.target_net = MLP_QNetwork(input_dim, hidden_dim1, hidden_dim2).to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
